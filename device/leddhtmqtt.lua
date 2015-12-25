@@ -2,7 +2,7 @@ led = 2
 dht22 = 4
 
 -- wifi.setmode(wifi.STATION)
--- wifi.sta.config("serts","raspberry")
+-- wifi.sta.config("<SSID>","<PASSWORD>")
 
 gpio.mode(led,gpio.OUTPUT)
 
