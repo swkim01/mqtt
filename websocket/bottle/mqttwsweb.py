@@ -3,7 +3,7 @@ from bottle import route, get, request, template, response, static_file
 from bottle import run
 #import json
 
-host="192.168.0.31"
+host="<HOST IP>"
 port=8008
 wsport=9001
 

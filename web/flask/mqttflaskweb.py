@@ -4,17 +4,19 @@ import gevent
 from gevent import monkey; monkey.patch_all()
 from gevent import sleep
 
+from gevent.pywsgi import WSGIServer
 from gevent.queue import Queue
 
-from bottle import get, post, request, response, template
-from bottle import GeventServer, run
+from flask import Flask, request, Response, render_template
 
 import paho.mqtt.client as mqtt
 import threading, time, json
 
-host = "192.168.0.31"
+host = "<HOST IP>"
 port = 8008
 subscriptions = []
+
+app = Flask(__name__)
 
 class MqttConnector(threading.Thread):
     def __init__(self, host, port):
@@ -24,7 +26,7 @@ class MqttConnector(threading.Thread):
         self.client.on_message = self.on_message
         self.host = host
         self.port = port
-        self.client.connect(self.host, self.port, 60)
+        self.client.connect(self.host, self.port, 10)
         self.running = True
 
     def run(self):
@@ -33,7 +35,7 @@ class MqttConnector(threading.Thread):
                 self.client.loop_forever()
 
         except (KeyboardInterrupt, SystemExit): #when you press ctrl+c
-            print "\nKilling Thread..."
+            print("\nKilling Thread...")
             self.running = False
         except StopIteration:
             self.client = None
@@ -81,7 +83,7 @@ class ServerSentEvent(object):
         
         return "%s\n\n" % "\n".join(lines)
 
-@get("/publish")
+@app.route("/publish")
 def publish():
     #Dummy data - pick up from request for real data
     def notify():
@@ -93,42 +95,40 @@ def publish():
     
     return "OK"
 
-@post("/led")
+@app.route("/led", methods=["POST"])
 def controlled():
-    l = request.body.read()
+    l = request.get_data()
     mqc.publish("led", l)
+    return "OK"
 
-@get("/events")
+@app.route("/events")
 def getevents():
+    def gen():
+        q = Queue()
+        subscriptions.append(q)
+        try:
+            while True:
+                result = q.get()
+                ev = ServerSentEvent(str(result))
+                yield ev.encode()
+        except GeneratorExit: # Or maybe use flask signals
+            subscriptions.remove(q)
 
-    response.content_type  = 'text/event-stream'
-    response.cache_control = 'no-cache'
+    return Response(gen(), mimetype ='text/event-stream')
 
-    # Set client-side auto-reconnect timeout, ms.
-    yield 'retry: 100\n\n'
-
-    q = Queue()
-    subscriptions.append(q)
-    try:
-        while True:
-            result = q.get()
-            ev = ServerSentEvent(str(result))
-            yield ev.encode()
-    except GeneratorExit: # Or maybe use flask signals
-        subscriptions.remove(q)
-
-@get("/ssechart")
+@app.route("/ssechart")
 def ssechart():
-    return template("ssechart", host=host, port=port)
+    return render_template("ssechart.html", host=host, port=port)
     #return template("debug")
 
-@get("/")
+@app.route("/")
 def index():
-    return template("index")
+    return render_template("index.html", root=".")
 
 if __name__ == "__main__":
     mqc = MqttConnector(host, port=1883)
     mqc.daemon = True
     mqc.start()
 
-    run(host=host, port=port, server=GeventServer)
+    http_server = WSGIServer((host, port), app)
+    http_server.serve_forever()
